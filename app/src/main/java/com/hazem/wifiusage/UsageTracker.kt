@@ -58,6 +58,25 @@ object WifiUsage {
         return total
     }
 
+    /**
+     * Takes one sample now: the Wi-Fi bytes used since the previous sample,
+     * attributed to the network we're connected to. Used by both the worker and the app.
+     */
+    @Synchronized
+    fun sampleNow(context: Context) {
+        val prefs = context.getSharedPreferences("tracker", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val last = prefs.getLong("last_sample", now - 15 * 60 * 1000)
+
+        val bytes = systemWifiBytes(context, last, now)
+        val ssid = currentSsid(context)
+
+        if (bytes > 0 && ssid != null) {
+            UsageDb(context).insert(now, ssid, bytes)
+        }
+        prefs.edit().putLong("last_sample", now).apply()
+    }
+
     /** Current Wi-Fi network name, or null when not on Wi-Fi. Needs location permission. */
     @Suppress("DEPRECATION")
     fun currentSsid(context: Context): String? {
@@ -77,17 +96,7 @@ object WifiUsage {
 class SampleWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
 
     override suspend fun doWork(): Result {
-        val prefs = applicationContext.getSharedPreferences("tracker", Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        val last = prefs.getLong("last_sample", now - 15 * 60 * 1000)
-
-        val bytes = WifiUsage.systemWifiBytes(applicationContext, last, now)
-        val ssid = WifiUsage.currentSsid(applicationContext)
-
-        if (bytes > 0 && ssid != null) {
-            UsageDb(applicationContext).insert(now, ssid, bytes)
-        }
-        prefs.edit().putLong("last_sample", now).apply()
+        WifiUsage.sampleNow(applicationContext)
         return Result.success()
     }
 }
